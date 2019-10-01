@@ -21,20 +21,20 @@ ADC::ADC()
     // the ADC reading to degrees Celsius conversion
     tempCal30C = *((unsigned int *)0x1A1A);
     tempCal85C = *((unsigned int *)0x1A1C);
-    this->degCPerBit = (85.0F - 30.0F)/(tempCal85C - tempCal30C);
+    this->degCPerBit = (85.0F - 30.0F)/(float)(tempCal85C - tempCal30C);
 
     REFCTL0 &= ~REFMSTR; // Reset REFMSTR to hand over control of internal reference
 
     // Potentiometer
-    ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12REF2_5V | ADC12ON | ADC12MSC; // Start ADC with 2.5V internal reference
+    ADC12CTL0 = ADC12SHT0_9 | ADC12REFON | ADC12ON | ADC12MSC; // Start ADC with 1.5V internal reference
 
     // Temperature Sensor
     ADC12CTL1 = ADC12SHP | ADC12CONSEQ_1 | ADC12CSTARTADD_0;
 
     ADC12IE = (BIT0 | BIT1); // Using ADC12MEM1 for conversion result, so enable interrupt for MEM1
 
-    ADC12MCTL0 = ADC12SREF_0 | ADC12INCH_0;
-    ADC12MCTL1 = ADC12SREF_1 | ADC12INCH_10 | ADC12EOS;
+    ADC12MCTL0 = ADC12SREF_0 | ADC12INCH_0; // Use 3.3V ref (VCC)
+    ADC12MCTL1 = ADC12SREF_1 | ADC12INCH_10 | ADC12EOS; // Use 1.5V ref
     P6SEL |= BIT0; // Set P6.0 to function mode to enable use of A0
 
     // Configure Timer A2
@@ -42,7 +42,20 @@ ADC::ADC()
     TA2CCR0 = 4095; // = ~1 second
     TA2CCTL0 = CCIE; // TA2CCR0 interrupt enabled
 
-    ADC12CTL0 |= (ADC12SC | ADC12ENC); // Start conversion
+    for (int i = 0; i < 5; i++) {
+        __delay_cycles(10000);
+        ADC12CTL0 |= (ADC12SC | ADC12ENC); // Start conversion
+
+        // Poll busy bit waiting for the first conversion to complete
+        while (ADC12CTL1 & ADC12BUSY)
+            __no_operation();
+    }
+
+    for(int i = 0; i < 10; i++)
+        rawTempReadings[i] = ADC12MEM1 & 0x0FFF;
+
+    for(int i = 0; i < 30; i++)
+        averagedTempReadings[i] = ADC12MEM1 & 0x0FFF;
 
     _BIS_SR(GIE); // Global interrupt enable
 }
@@ -52,14 +65,14 @@ ADC::~ADC()
     // TODO: Clean up here? This probably doesn't matter
 }
 
-uint32_t ADC::getCurrentTempF()
+float ADC::getCurrentTempF()
 {
     return getCurrentTempC() * 9.0F/5.0F + 32.0F;
 }
 
-uint32_t ADC::getCurrentTempC()
+float ADC::getCurrentTempC()
 {
-    return (averagedTempReadings[readingIndex % 30] - tempCal30C) * degCPerBit + 30.0F;
+    return (float)(((int32_t)averagedTempReadings[readingIndex % 30]) - tempCal30C) * degCPerBit + 30.0F;
 }
 
 uint32_t ADC::getCurrentPot() {

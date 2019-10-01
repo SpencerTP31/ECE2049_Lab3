@@ -15,8 +15,8 @@ class ADC
 public:
     ADC();
     virtual ~ADC();
-    uint32_t getCurrentTempF();
-    uint32_t getCurrentTempC();
+    float getCurrentTempF();
+    float getCurrentTempC();
     uint32_t getCurrentPot();
 private:
     static __interrupt void ADC12ISR();

@@ -46,12 +46,27 @@ uint32_t dayToSeconds(uint8_t day)
     return day * SECONDS_PER_DAY;
 }
 
+uint32_t dateToSeconds(Date date)
+{
+    uint32_t total = 0;
+    for (int i = 0; i < date.month; i++)
+        total += monthToSeconds(i);
+    return total + dayToSeconds(date.day);
+}
+
+uint32_t timeToSeconds(Time time)
+{
+    uint32_t total = time.hours * MINUTES_PER_HOUR * SECONDS_PER_MINUTE
+            + time.minutes * SECONDS_PER_MINUTE + time.seconds;
+}
+
 Time currentTime()
 {
     Time time;
     time.seconds = globalClock % SECONDS_PER_MINUTE;
     time.minutes = globalClock / SECONDS_PER_MINUTE % MINUTES_PER_HOUR;
-    time.hours = globalClock / SECONDS_PER_MINUTE / MINUTES_PER_HOUR % HOURS_PER_DAY;
+    time.hours = globalClock / SECONDS_PER_MINUTE / MINUTES_PER_HOUR
+            % HOURS_PER_DAY;
     return time;
 }
 
@@ -91,6 +106,15 @@ Date currentDate()
 //day += months[i]
 //break
 //return (month, day)
+}
+
+uint32_t deltaNumber(uint32_t initial, uint32_t min, uint32_t max, int32_t delta, int32_t divisor) {
+    uint32_t final = initial + delta/divisor;
+    if(final < min)
+        final = min;
+    if(final > max)
+        final = max;
+    return final;
 }
 
 #endif /* INC_TIME_H_ */

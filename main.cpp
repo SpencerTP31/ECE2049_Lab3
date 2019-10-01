@@ -14,13 +14,18 @@
 // States utilized in main program state machine
 typedef enum State
 {
-    DISPLAY, WAIT_FOR_TRANSITION, EDIT, EDIT_VALUES
+    DISPLAY, WAIT_FOR_TRANSITION, BEGIN_EDIT, DRAW_EDIT, EDIT
 } State;
 
 typedef enum DisplayState
 {
     DATE, TIME, TEMP_C, TEMP_F
 } DisplayState;
+
+typedef enum EditState
+{
+    MONTH, DAY, HOUR, MINUTE, SECOND
+} EditState;
 
 // Defined in main.h
 uint32_t globalClock = monthToSeconds(0) + monthToSeconds(1) + monthToSeconds(2)
@@ -36,7 +41,8 @@ void drawTempC(ADC*);
 void drawTempF(ADC*);
 void configButtons();
 unsigned char getButtonState();
-void drawDateTime();
+void drawDateTime(Date, Time);
+void drawUnderline(EditState);
 void drawEditScreen(ADC* adc, int pos);
 
 // Program entry point
@@ -46,7 +52,13 @@ void main(void)
     uint32_t startCounter, deltaCounter;
     State state = DISPLAY;
     DisplayState displayState = DATE;
-    unsigned char buttonPressed, keyPressed = 0;
+    EditState editState = MONTH;
+
+    uint8_t buttonPressed, lastButtonPressed;
+    int32_t startPot, deltaPot, potMonthIncrement = 200, potMiscIncrement = 40;
+
+    Date editDate, editStartDate;
+    Time editTime, editStartTime;
 
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
@@ -58,18 +70,10 @@ void main(void)
 
     ADC* adc = new ADC();
 
-//    deltaTime = globalCounter - startCounter;
-
     // Main loop
     while (1)
     {
         buttonPressed = getButtonState();
-        keyPressed = getKey();
-
-        if (buttonPressed & BIT3)
-        {
-            state = EDIT;
-        }
 
         switch (state)
         {
@@ -93,49 +97,149 @@ void main(void)
             state = WAIT_FOR_TRANSITION;
             break;
         case WAIT_FOR_TRANSITION:
+            if (buttonPressed & BIT0)
+            {
+                state = BEGIN_EDIT;
+            }
+
             deltaCounter = globalCounter - startCounter;
-            if(deltaCounter >= 2) {
+            if (deltaCounter >= 2)
+            {
                 switch (displayState)
                 {
-                case DATE:      displayState = TIME;    break;
-                case TIME:      displayState = TEMP_C;  break;
-                case TEMP_C:    displayState = TEMP_F;  break;
-                case TEMP_F:    displayState = DATE;    break;
+                case DATE:
+                    displayState = TIME;
+                    break;
+                case TIME:
+                    displayState = TEMP_C;
+                    break;
+                case TEMP_C:
+                    displayState = TEMP_F;
+                    break;
+                case TEMP_F:
+                    displayState = DATE;
+                    break;
                 }
                 state = DISPLAY;
             }
             break;
-        case EDIT:
-            drawDateTime();
-            state = EDIT_VALUES;
-            break;
-        case EDIT_VALUES:
-//            drawEditScreen(adc);
-            uint32_t currentPot = 0, deltaPot = 0;
-            currentPot = adc->getCurrentPot();
 
-            while(!buttonPressed) {
-                deltaPot = currentPot - adc->getCurrentPot()
-                if (deltaPot > 100 && date.month != 11) {
-                    date.month += 1;
-                    deltaPot = 0;
+        case BEGIN_EDIT:
+            editDate = currentDate();
+            editStartDate = currentDate();
+            editTime = currentTime();
+            editStartTime = currentTime();
+
+            startPot = adc->getCurrentPot();
+
+            state = DRAW_EDIT;
+            break;
+        case DRAW_EDIT:
+            drawDateTime(editDate, editTime);
+            drawUnderline(editState);
+            state = EDIT;
+            break;
+        case EDIT:
+            if (buttonPressed != lastButtonPressed)
+            {
+                if (buttonPressed & BIT0)
+                {
+                    editState = (EditState) ((editState + 1) % 5);
+                    // Reset potentiometer input every time we transition between edit states
+                    startPot = adc->getCurrentPot();
+                    editStartDate = editDate;
+                    editStartTime = editTime;
+                    state = DRAW_EDIT;
                 }
-                if (deltaPot < 100 && date.month != 0) {
-                    date.month -= 1;
-                    deltaPot = 0;
+                // Exit edit state
+                if (buttonPressed & BIT1)
+                {
+                    // Save time to global time, then switch back to DISPLAY
+                    // and set display state to DATE
+                    globalClock = dateToSeconds(editDate)
+                            + timeToSeconds(editTime);
+                    state = DISPLAY;
+                    displayState = DATE;
+                    break;
+                }
+            }
+            else
+            {
+                deltaPot = adc->getCurrentPot() - startPot;
+                // Scroll mode
+                switch (editState)
+                {
+                case MONTH:
+                    uint32_t month = deltaNumber(editStartDate.month, 0, 11, deltaPot, potMonthIncrement);
+                    if (month != editDate.month)
+                    {
+                        editDate.month = month;
+                        state = DRAW_EDIT;
+                    }
+                    break;
+                case DAY:
+                    uint32_t day = deltaNumber(editStartDate.day, 1, monthDayCounts[editDate.month], deltaPot, potMiscIncrement);
+                    if (day != editDate.day)
+                    {
+                        editDate.day = day;
+                        state = DRAW_EDIT;
+                    }
+                    break;
+                case HOUR:
+                    uint32_t hour = deltaNumber(editStartTime.hours, 0, 23, deltaPot, potMiscIncrement);
+                    if (hour != editTime.hours)
+                    {
+                        editTime.hours = hour;
+                        state = DRAW_EDIT;
+                    }
+                    break;
+                case MINUTE:
+                    uint32_t minutes = deltaNumber(editStartTime.minutes, 0, 59, deltaPot, potMiscIncrement);
+                    if (minutes != editTime.minutes)
+                    {
+                        editTime.minutes = minutes;
+                        state = DRAW_EDIT;
+                    }
+                    break;
+                case SECOND:
+                    uint32_t seconds = deltaNumber(editStartTime.seconds, 0, 59, deltaPot, potMiscIncrement);
+                    if (seconds != editTime.seconds)
+                    {
+                        editTime.seconds = seconds;
+                        state = DRAW_EDIT;
+                    }
+                    break;
                 }
             }
 
-            state = EDIT_VALUES;
+            //            drawEditScreen(adc);
+//            uint32_t currentPot = 0, deltaPot = 0;
+//            currentPot = adc->getCurrentPot();
+//
+//            while(!buttonPressed) {
+//                deltaPot = currentPot - adc->getCurrentPot()
+//                if (deltaPot > 100 && date.month != 11) {
+//                    date.month += 1;
+//                    deltaPot = 0;
+//                }
+//                if (deltaPot < 100 && date.month != 0) {
+//                    date.month -= 1;
+//                    deltaPot = 0;
+//                }
+//            }
+//
+//            state = EDIT_VALUES;
 //            while (1) {
 //                uint32_t deltaPot = currentPot - adc->getCurrentPot();
 //            }
             break;
         }
+        lastButtonPressed = buttonPressed;
     }
 }
 
-void drawDate() {
+void drawDate()
+{
     Graphics_clearDisplay(&g_sContext);
 
     Date date = currentDate();
@@ -151,7 +255,8 @@ void drawDate() {
 
 //    snprintf(dBuffer, 9, "%s %d", monthNames[date.month], date.day);
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 6, 48, 25, TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) dBuffer, 6, 48, 25,
+    TRANSPARENT_TEXT);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
@@ -174,39 +279,40 @@ void drawTime()
     dBuffer[6] = time.seconds / 10 % 10 + '0';
     dBuffer[7] = time.seconds % 10 + '0';
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 8, 48, 25, TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) dBuffer, 8, 48, 25,
+    TRANSPARENT_TEXT);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
     Graphics_flushBuffer(&g_sContext);
 }
 
-
-void drawTempC(ADC* adc) {
+void drawTempC(ADC* adc)
+{
     Graphics_clearDisplay(&g_sContext);
 
     float tempC = adc->getCurrentTempC();
 
     char dBuffer[6];
-    dBuffer[0] = (uint8_t)tempC / 10 % 10 + '0';
-    dBuffer[1] = (uint8_t)tempC % 10 + '0';
+    dBuffer[0] = (uint8_t) tempC / 10 % 10 + '0';
+    dBuffer[1] = (uint8_t) tempC % 10 + '0';
     dBuffer[2] = '.';
-    dBuffer[3] = (uint8_t)(tempC * 10) % 10 + '0';
+    dBuffer[3] = (uint8_t) (tempC * 10) % 10 + '0';
     dBuffer[4] = ' ';
     dBuffer[5] = 'C';
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 6, 48, 25, TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) dBuffer, 6, 48, 25,
+    TRANSPARENT_TEXT);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
     Graphics_flushBuffer(&g_sContext);
 }
 
-void drawDateTime() {
+void drawDateTime(Date date, Time time)
+{
     Graphics_clearDisplay(&g_sContext);
 
-    Date date = currentDate();
-    Time time = currentTime();
     const char* month = monthNames[date.month];
 
     char dBuffer[6];
@@ -227,40 +333,63 @@ void drawDateTime() {
     tBuffer[6] = time.seconds / 10 % 10 + '0';
     tBuffer[7] = time.seconds % 10 + '0';
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 6, 48, 25, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)tBuffer, 8, 48, 55, TRANSPARENT_TEXT);
-
-    // Draw selection line (EVENTUALLY MOVE TO EDIT SCREEN FUNCTION)
-    Graphics_drawLineH(&g_sContext, 30, 46, 32);
-    Graphics_drawLineH(&g_sContext, 52, 66, 32);
-
-    Graphics_drawLineH(&g_sContext, 23, 35, 62);
-    Graphics_drawLineH(&g_sContext, 43, 55, 62);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) dBuffer, 6, 48, 25,
+    TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) tBuffer, 8, 48, 55,
+    TRANSPARENT_TEXT);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
     Graphics_flushBuffer(&g_sContext);
 }
 
-void drawEditScreen(ADC* adc, int pos) {
+// Draw selection line
+void drawUnderline(EditState state)
+{
+    switch (state)
+    {
+    case MONTH:
+        Graphics_drawLineH(&g_sContext, 30, 46, 32);
+        break;
+    case DAY:
+        Graphics_drawLineH(&g_sContext, 52, 66, 32);
+        break;
+    case HOUR:
+        Graphics_drawLineH(&g_sContext, 23, 35, 62);
+        break;
+    case MINUTE:
+        Graphics_drawLineH(&g_sContext, 41, 53, 62);
+        break;
+    case SECOND:
+        Graphics_drawLineH(&g_sContext, 59, 71, 62);
+        break;
+    }
+
+    Graphics_flushBuffer(&g_sContext);
+}
+
+void drawEditScreen(ADC* adc, int pos)
+{
 //    int currentPot = adc->getCurrentPot();
 //    Graphics_drawLineH(&g_sContext, 28, 48, 32);
 }
 
-void drawTempF(ADC* adc) {
+void drawTempF(ADC* adc)
+{
     Graphics_clearDisplay(&g_sContext);
 
     float tempF = adc->getCurrentTempF();
 
     char dBuffer[6];
-    dBuffer[0] = (uint8_t)tempF / 10 % 10 + '0';
-    dBuffer[1] = (uint8_t)tempF % 10 + '0';
+    dBuffer[0] = (uint8_t) tempF / 10 % 10 + '0';
+    dBuffer[1] = (uint8_t) tempF % 10 + '0';
     dBuffer[2] = '.';
-    dBuffer[3] = (uint8_t)(tempF * 10) % 10 + '0';
+    dBuffer[3] = (uint8_t) (tempF * 10) % 10 + '0';
     dBuffer[4] = ' ';
     dBuffer[5] = 'F';
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 6, 48, 25, TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*) dBuffer, 6, 48, 25,
+    TRANSPARENT_TEXT);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
@@ -270,41 +399,29 @@ void drawTempF(ADC* adc) {
 // Configure lab board buttons
 void configButtons()
 {
-    // P7.0, P3.6, P2.2, P7.4
-    // Configure P2.2
-    P2SEL &= ~(BIT2);    // Select pin for DI/O
-    P2DIR &= ~(BIT2);    // Set pin as input
-    P2REN |= (BIT2);    // Enable pull-up resistor
-    P2OUT |= (BIT2);
+    // Left Button
+    P2SEL &= ~(BIT1); // Select pin for DI/O
+    P2DIR &= ~(BIT1); // Set pin as input
+    P2REN |= (BIT1); // Enable input resistor
+    P2OUT |= (BIT1); // Set resistor to pull up
 
-    // Configure P3.6
-    P3SEL &= ~(BIT6);    // Select pin for DI/O
-    P3DIR &= ~(BIT6);    // Set pin as input
-    P3REN |= (BIT6);    // Enable pull-up resistor
-    P3OUT |= (BIT6);
-
-    // Configure P7.0 and P7.4
-    P7SEL &= ~(BIT4 | BIT0);    // Select pins for DI/O
-    P7DIR &= ~(BIT4 | BIT0);    // Set pins as input
-    P7REN |= (BIT4 | BIT0);    // Enable pull-up resistors
-    P7OUT |= (BIT4 | BIT0);
+    // Right Button
+    P1SEL &= ~(BIT1); // Select pin for DI/O
+    P1DIR &= ~(BIT1); // Set pin as input
+    P1REN |= (BIT1); // Enable input resistor
+    P1OUT |= (BIT1); // Set resistor to pull up
 }
 
 // Get the state of the lab board buttons
 unsigned char getButtonState()
 {
     unsigned char ret = 0x00;
-    // P2.2
-    if (~P2IN & BIT2)
-        ret |= BIT1; // Button 2
-    // P3.6
-    if (~P3IN & BIT6)
-        ret |= BIT2;    // Button 1
-    // P7.0
-    if (~P7IN & BIT0)
-        ret |= BIT3;    // Button 0
-    // P7.4
-    if (~P7IN & BIT4)
-        ret |= BIT0;    // Button 3
+    // P2.1
+    if (~P2IN & BIT1)
+        ret |= BIT0; // Left button (S1)
+    // P1.1
+    if (~P1IN & BIT1)
+        ret |= BIT1; // Right button (S2)
     return ret;
 }
+
