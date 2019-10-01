@@ -1,12 +1,11 @@
-/**************** ECE2049 Lab 2 ******************/
-/***************  13 March 2019 ******************/
+/**************** ECE2049 Lab 3 ******************/
+/*************  25 September 2019 ****************/
 /******  Benjamin Ward, Jonathan Ferreira ********/
 /*************************************************/
 
 #include <msp430.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <inc/song.h>
 #include <inc/peripherals.h>
 #include <inc/ADC.h>
 #include <main.h>
@@ -15,7 +14,7 @@
 // States utilized in main program state machine
 typedef enum State
 {
-    DISPLAY, WAIT_FOR_TRANSITION, EDIT
+    DISPLAY, WAIT_FOR_TRANSITION, EDIT, EDIT_VALUES
 } State;
 
 typedef enum DisplayState
@@ -30,10 +29,15 @@ uint32_t globalClock = monthToSeconds(0) + monthToSeconds(1) + monthToSeconds(2)
 
 uint32_t globalCounter = 0;
 
+// Function prototypes
 void drawDate();
 void drawTime();
 void drawTempC(ADC*);
 void drawTempF(ADC*);
+void configButtons();
+unsigned char getButtonState();
+void drawDateTime();
+void drawEditScreen(ADC* adc);
 
 // Program entry point
 void main(void)
@@ -42,15 +46,15 @@ void main(void)
     uint32_t startCounter, deltaCounter;
     State state = DISPLAY;
     DisplayState displayState = DATE;
+    unsigned char buttonPressed, keyPressed = 0;
 
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
     // Set up and configure peripherals and I/O
     initLeds();
-//    configSmolLEDs();
     configDisplay();
-//    configKeypad();
-//    configButtons();
+    configButtons();
+    configKeypad();
 
     ADC* adc = new ADC();
 
@@ -59,6 +63,18 @@ void main(void)
     // Main loop
     while (1)
     {
+        buttonPressed == getButtonState();
+        keyPressed = getKey();
+
+//        if (buttonPressed)
+//        {
+//            state = EDIT;
+//        }
+        if (keyPressed == '#' && state != EDIT)
+        {
+            state = EDIT;
+        }
+
         switch (state)
         {
         case DISPLAY:
@@ -94,8 +110,16 @@ void main(void)
             }
             break;
         case EDIT:
+            drawDateTime();
+            drawEditScreen(adc);
+            state = EDIT_VALUES;
             break;
         }
+//        case EDIT_VALUES:
+////            if (keyPressed == '#' && state != EDIT)
+//            drawEditScreen();
+//            break;
+//        }
     }
 }
 
@@ -166,6 +190,46 @@ void drawTempC(ADC* adc) {
     Graphics_flushBuffer(&g_sContext);
 }
 
+void drawDateTime() {
+    Graphics_clearDisplay(&g_sContext);
+
+    Date date = currentDate();
+    Time time = currentTime();
+    const char* month = monthNames[date.month];
+
+    char dBuffer[6];
+    dBuffer[0] = month[0];
+    dBuffer[1] = month[1];
+    dBuffer[2] = month[2];
+    dBuffer[3] = ' ';
+    dBuffer[4] = date.day / 10 % 10 + '0';
+    dBuffer[5] = date.day % 10 + '0';
+
+    char tBuffer[8];
+    tBuffer[0] = time.hours / 10 % 10 + '0';
+    tBuffer[1] = time.hours % 10 + '0';
+    tBuffer[2] = ':';
+    tBuffer[3] = time.minutes / 10 % 10 + '0';
+    tBuffer[4] = time.minutes % 10 + '0';
+    tBuffer[5] = ':';
+    tBuffer[6] = time.seconds / 10 % 10 + '0';
+    tBuffer[7] = time.seconds % 10 + '0';
+
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*)dBuffer, 6, 48, 25, TRANSPARENT_TEXT);
+    Graphics_drawStringCentered(&g_sContext, (uint8_t*)tBuffer, 8, 48, 55, TRANSPARENT_TEXT);
+
+    // Draw selection line (EVENTUALLY MOVE TO EDIT SCREEN FUNCTION)
+    Graphics_drawLineH(&g_sContext, 28, 48, 32);
+
+    Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
+    Graphics_drawRectangle(&g_sContext, &box);
+    Graphics_flushBuffer(&g_sContext);
+}
+
+void drawEditScreen(ADC* adc) {
+    int selectedMonth = adc->getCurrentPot();
+}
+
 void drawTempF(ADC* adc) {
     Graphics_clearDisplay(&g_sContext);
 
@@ -186,118 +250,44 @@ void drawTempF(ADC* adc) {
     Graphics_flushBuffer(&g_sContext);
 }
 
-void drawWelcome()
+// Configure lab board buttons
+void configButtons()
 {
-// *** Intro Screen ***
-                    // Clear the display
+    // P7.0, P3.6, P2.2, P7.4
+    // Configure P2.2
+    P2SEL &= ~(BIT2);    // Select pin for DI/O
+    P2DIR &= ~(BIT2);    // Set pin as input
+    P2REN |= (BIT2);    // Enable pull-up resistor
+    P2OUT |= (BIT2);
 
-// Write some text to the display
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "MSP430",
-    AUTO_STRING_LENGTH,
-                                48, 25, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "HERO",
-    AUTO_STRING_LENGTH,
-                                48, 35,
-                                TRANSPARENT_TEXT);
+    // Configure P3.6
+    P3SEL &= ~(BIT6);    // Select pin for DI/O
+    P3DIR &= ~(BIT6);    // Set pin as input
+    P3REN |= (BIT6);    // Enable pull-up resistor
+    P3OUT |= (BIT6);
 
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "Press *",
-    AUTO_STRING_LENGTH,
-                                48, 70, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "to Start",
-    AUTO_STRING_LENGTH,
-                                48, 80, TRANSPARENT_TEXT);
-
-// Draw a box around everything because it looks nice
-
-
-// We are now done writing to the display.  However, if we stopped here, we would not
-// see any changes on the actual LCD.  This is because we need to send our changes
-// to the LCD, which then refreshes the display.
-// Since this is a slow operation, it is best to refresh (or "flush") only after
-// we are done drawing everything we need.
-
+    // Configure P7.0 and P7.4
+    P7SEL &= ~(BIT4 | BIT0);    // Select pins for DI/O
+    P7DIR &= ~(BIT4 | BIT0);    // Set pins as input
+    P7REN |= (BIT4 | BIT0);    // Enable pull-up resistors
+    P7OUT |= (BIT4 | BIT0);
 }
 
-void drawLoss()
+// Get the state of the lab board buttons
+unsigned char getButtonState()
 {
-// *** Intro Screen ***
-    Graphics_clearDisplay(&g_sContext);    // Clear the display
-
-// Write some text to the display
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "You Lost.",
-    AUTO_STRING_LENGTH,
-                                48, 25, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) ">:(",
-    AUTO_STRING_LENGTH,
-                                48, 35,
-                                TRANSPARENT_TEXT);
-
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "Press *",
-    AUTO_STRING_LENGTH,
-                                48, 70, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "to Try Again",
-    AUTO_STRING_LENGTH,
-                                48, 80, TRANSPARENT_TEXT);
-
-// Draw a box around everything because it looks nice
-    Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
-    Graphics_drawRectangle(&g_sContext, &box);
-
-    Graphics_flushBuffer(&g_sContext);
-}
-
-void drawWin()
-{
-// *** Intro Screen ***
-    Graphics_clearDisplay(&g_sContext);    // Clear the display
-
-// Write some text to the display
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "You Win!",
-    AUTO_STRING_LENGTH,
-                                48, 25, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) ":D",
-    AUTO_STRING_LENGTH,
-                                48, 35,
-                                TRANSPARENT_TEXT);
-
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "Press *",
-    AUTO_STRING_LENGTH,
-                                48, 70, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "to Try Again",
-    AUTO_STRING_LENGTH,
-                                48, 80, TRANSPARENT_TEXT);
-
-// Draw a box around everything because it looks nice
-    Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
-    Graphics_drawRectangle(&g_sContext, &box);
-
-    Graphics_flushBuffer(&g_sContext);
-}
-
-void drawNextLevel(int level)
-{
-
-    Graphics_clearDisplay(&g_sContext);
-
-    char buffer[10];
-    snprintf(buffer, 9, "Level %d", level);
-
-// Write some text to the display
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) buffer,
-    AUTO_STRING_LENGTH,
-                                48, 35,
-                                TRANSPARENT_TEXT);
-
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "Press *",
-    AUTO_STRING_LENGTH,
-                                48, 70, TRANSPARENT_TEXT);
-    Graphics_drawStringCentered(&g_sContext, (uint8_t*) "to Begin",
-    AUTO_STRING_LENGTH,
-                                48, 80, TRANSPARENT_TEXT);
-
-// Draw a box around everything because it looks nice
-    Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
-    Graphics_drawRectangle(&g_sContext, &box);
-
-    Graphics_flushBuffer(&g_sContext);
+    unsigned char ret = 0x00;
+    // P2.2
+    if (~P2IN & BIT2)
+        ret |= BIT1; // Button 2
+    // P3.6
+    if (~P3IN & BIT6)
+        ret |= BIT2;    // Button 1
+    // P7.0
+    if (~P7IN & BIT0)
+        ret |= BIT3;    // Button 0
+    // P7.4
+    if (~P7IN & BIT4)
+        ret |= BIT0;    // Button 3
+    return ret;
 }
