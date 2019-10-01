@@ -63,7 +63,7 @@ uint32_t ADC::getCurrentTempC()
 }
 
 uint32_t ADC::getCurrentPot() {
-    return ADC::rawPotReading;
+    return rawPotReading;
 }
 
 // Configure the Timer A2 ISR
@@ -86,6 +86,8 @@ __interrupt void ADC::ADC12ISR() {
     {
         sum += rawTempReadings[i];
     }
+
+//    uint32_t test = rawPotReading;
 
     averagedTempReadings[readingIndex % 30] = sum / 10;
 

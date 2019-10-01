@@ -37,7 +37,7 @@ void drawTempF(ADC*);
 void configButtons();
 unsigned char getButtonState();
 void drawDateTime();
-void drawEditScreen(ADC* adc);
+void drawEditScreen(ADC* adc, int pos);
 
 // Program entry point
 void main(void)
@@ -63,14 +63,10 @@ void main(void)
     // Main loop
     while (1)
     {
-        buttonPressed == getButtonState();
+        buttonPressed = getButtonState();
         keyPressed = getKey();
 
-//        if (buttonPressed)
-//        {
-//            state = EDIT;
-//        }
-        if (keyPressed == '#' && state != EDIT)
+        if (buttonPressed & BIT3)
         {
             state = EDIT;
         }
@@ -111,15 +107,31 @@ void main(void)
             break;
         case EDIT:
             drawDateTime();
-            drawEditScreen(adc);
             state = EDIT_VALUES;
             break;
+        case EDIT_VALUES:
+//            drawEditScreen(adc);
+            uint32_t currentPot = 0, deltaPot = 0;
+            currentPot = adc->getCurrentPot();
+
+            while(!buttonPressed) {
+                deltaPot = currentPot - adc->getCurrentPot()
+                if (deltaPot > 100 && date.month != 11) {
+                    date.month += 1;
+                    deltaPot = 0;
+                }
+                if (deltaPot < 100 && date.month != 0) {
+                    date.month -= 1;
+                    deltaPot = 0;
+                }
+            }
+
+            state = EDIT_VALUES;
+//            while (1) {
+//                uint32_t deltaPot = currentPot - adc->getCurrentPot();
+//            }
+            break;
         }
-//        case EDIT_VALUES:
-////            if (keyPressed == '#' && state != EDIT)
-//            drawEditScreen();
-//            break;
-//        }
     }
 }
 
@@ -219,15 +231,20 @@ void drawDateTime() {
     Graphics_drawStringCentered(&g_sContext, (uint8_t*)tBuffer, 8, 48, 55, TRANSPARENT_TEXT);
 
     // Draw selection line (EVENTUALLY MOVE TO EDIT SCREEN FUNCTION)
-    Graphics_drawLineH(&g_sContext, 28, 48, 32);
+    Graphics_drawLineH(&g_sContext, 30, 46, 32);
+    Graphics_drawLineH(&g_sContext, 52, 66, 32);
+
+    Graphics_drawLineH(&g_sContext, 23, 35, 62);
+    Graphics_drawLineH(&g_sContext, 43, 55, 62);
 
     Graphics_Rectangle box = { .xMin = 5, .xMax = 91, .yMin = 5, .yMax = 91 };
     Graphics_drawRectangle(&g_sContext, &box);
     Graphics_flushBuffer(&g_sContext);
 }
 
-void drawEditScreen(ADC* adc) {
-    int selectedMonth = adc->getCurrentPot();
+void drawEditScreen(ADC* adc, int pos) {
+//    int currentPot = adc->getCurrentPot();
+//    Graphics_drawLineH(&g_sContext, 28, 48, 32);
 }
 
 void drawTempF(ADC* adc) {
