@@ -10,6 +10,7 @@
 #include <msp430.h>
 #include <numeric>
 
+// Global variables
 uint32_t ADC::rawTempReadings[10];
 uint32_t ADC::averagedTempReadings[30];
 uint32_t ADC::rawPotReading;
@@ -31,7 +32,8 @@ ADC::ADC()
     // Temperature Sensor
     ADC12CTL1 = ADC12SHP | ADC12CONSEQ_1 | ADC12CSTARTADD_0;
 
-    ADC12IE = (BIT0 | BIT1); // Using ADC12MEM1 for conversion result, so enable interrupt for MEM1
+    // Using ADC12MEM1 for conversion result, so enable interrupt for MEM1
+    ADC12IE = (BIT0 | BIT1);
 
     ADC12MCTL0 = ADC12SREF_0 | ADC12INCH_0; // Use 3.3V ref (VCC)
     ADC12MCTL1 = ADC12SREF_1 | ADC12INCH_10 | ADC12EOS; // Use 1.5V ref
@@ -51,9 +53,11 @@ ADC::ADC()
             __no_operation();
     }
 
+    // Collect temperature readings
     for(int i = 0; i < 10; i++)
         rawTempReadings[i] = ADC12MEM1 & 0x0FFF;
 
+    // Average the temperature readings
     for(int i = 0; i < 30; i++)
         averagedTempReadings[i] = ADC12MEM1 & 0x0FFF;
 
@@ -62,19 +66,22 @@ ADC::ADC()
 
 ADC::~ADC()
 {
-    // TODO: Clean up here? This probably doesn't matter
+    // Not necessary, ADC instance will not be deconstructed
 }
 
+// Get current temperature in Farenheit
 float ADC::getCurrentTempF()
 {
     return getCurrentTempC() * 9.0F/5.0F + 32.0F;
 }
 
+// Get current temperature in Celsius
 float ADC::getCurrentTempC()
 {
     return (float)(((int32_t)averagedTempReadings[readingIndex % 30]) - tempCal30C) * degCPerBit + 30.0F;
 }
 
+// Get current potentiometer reading
 uint32_t ADC::getCurrentPot() {
     return rawPotReading;
 }
@@ -88,6 +95,7 @@ __interrupt void ADC::TIMERA2ISR()
     ADC12CTL0 |= (ADC12SC | ADC12ENC); // Start conversion
 }
 
+// Configure the temperature and potentiometer ISR
 #pragma vector=ADC12_VECTOR
 __interrupt void ADC::ADC12ISR() {
     // Move results to static
@@ -99,8 +107,6 @@ __interrupt void ADC::ADC12ISR() {
     {
         sum += rawTempReadings[i];
     }
-
-//    uint32_t test = rawPotReading;
 
     averagedTempReadings[readingIndex % 30] = sum / 10;
 
